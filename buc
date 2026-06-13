@@ -198,12 +198,14 @@ cmd_on() {
   # Ensure parent directory exists
   sudo mkdir -p "$(dirname "$CONFIG")" 2>/dev/null || true
   echo "{\"enabled\":true,\"mode\":\"$mode\"}" | sudo tee "$CONFIG" > /dev/null
+  sudo chown "$(id -u):$(id -g)" "$CONFIG" 2>/dev/null || true
   echo "{\"success\":true,\"enabled\":true,\"mode\":\"$mode\"}"
 }
 
 cmd_off() {
   sudo mkdir -p "$(dirname "$CONFIG")" 2>/dev/null || true
   echo '{"enabled":false,"mode":"headless"}' | sudo tee "$CONFIG" > /dev/null
+  sudo chown "$(id -u):$(id -g)" "$CONFIG" 2>/dev/null || true
   echo '{"success":true,"enabled":false}'
 }
 
@@ -266,7 +268,13 @@ case "${1:-}" in
   send)       shift; check_enabled; cmd send "$@" ;;
   type|typ)   shift; check_enabled; cmd type "$@" ;;
   press|key)  shift; check_enabled; cmd press "$@" ;;
-  ss|screenshot) shift; check_enabled; cmd screenshot "$@" ;;
+  ss|screenshot) shift; check_enabled;
+    full=""
+    path=""
+    for arg in "$@"; do
+      if [[ "${arg:-}" == "--full" ]]; then full="--full"; else path="$arg"; fi
+    done
+    cmd screenshot "$path" $full ;;
   snap|snapshot) check_enabled; cmd snapshot ;;
   eval|evaluate) shift; check_enabled; cmd evaluate "$@" ;;
   scroll|sc)  shift; check_enabled; cmd scroll "${1:-down}" ;;

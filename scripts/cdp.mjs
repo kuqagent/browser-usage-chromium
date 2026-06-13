@@ -260,9 +260,32 @@ async function cmd_click_index(client, index) {
     return r.result?.value || { success: true }
   }
 
-  // Fallback: find by role + text
+  // Fallback: find by role + text (try multiple strategies)
   const r = await client.send("Runtime.evaluate", {
-    expression: `(() => { const els = document.querySelectorAll('${target.role === "link" ? "a" : target.role === "button" ? "button" : "input, textarea, select, [role]"}}'); for (const el of els) { if (el.textContent?.trim().includes(${JSON.stringify(target.name.slice(0, 30))})) { el.scrollIntoView({block:"center"}); el.click(); return {success:true, tag:el.tagName} } } return {error:"not found by text"} })()`,
+    expression: `(() => {
+      const roleSelector = ${target.role === "link" ? '"a"' : target.role === "button" ? '"button"' : '"input, textarea, select, [role]"'};
+      const els = document.querySelectorAll(roleSelector);
+      const nameLC = ${JSON.stringify(target.name.toLowerCase().slice(0, 50))};
+      for (const el of els) {
+        const text = (el.textContent || "").trim().toLowerCase();
+        const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+        const placeholder = (el.getAttribute("placeholder") || "").toLowerCase();
+        if (text.includes(nameLC) || aria.includes(nameLC) || placeholder.includes(nameLC)) {
+          el.scrollIntoView({block:"center"});
+          el.click();
+          return {success:true, tag:el.tagName, method:"text-match"};
+        }
+      }
+      // Last resort: click by index in role-matched elements
+      const allEls = Array.from(document.querySelectorAll(roleSelector));
+      if (allEls.length >= ${index}) {
+        const el = allEls[${index} - 1];
+        el.scrollIntoView({block:"center"});
+        el.click();
+        return {success:true, tag:el.tagName, method:"index-fallback"};
+      }
+      return {error:"not found by text or index"};
+    })()`,
     returnByValue: true,
   })
   await new Promise((r) => setTimeout(r, 1000))
@@ -310,12 +333,22 @@ async function cmd_press(client, key) {
   return { success: true, key }
 }
 
-async function cmd_screenshot(client, path) {
-  const { data } = await client.send("Page.captureScreenshot", { format: "png" })
+async function cmd_screenshot(client, path, fullPage) {
+  const opts = { format: "png" }
+  if (fullPage) {
+    // Get full page dimensions
+    const { result: { value: dims } } = await client.send("Runtime.evaluate", {
+      expression: "JSON.stringify({width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight})",
+      returnByValue: true,
+    })
+    const { width, height } = JSON.parse(dims)
+    opts.clip = { x: 0, y: 0, width, height, scale: 1 }
+  }
+  const { data } = await client.send("Page.captureScreenshot", opts)
   const buf = Buffer.from(data, "base64")
   if (path) {
     writeFileSync(path, buf)
-    return { success: true, path, size: buf.length }
+    return { success: true, path, size: buf.length, fullPage: !!fullPage }
   }
   return { success: true, base64: data.slice(0, 100) + "...(truncated)", fullLength: data.length }
 }
@@ -634,7 +667,7 @@ async function main() {
       send: () => cmd_send(client, rest.join(" ")),
       type: () => cmd_type(client, rest[0], rest.slice(1).join(" ")),
       press: () => cmd_press(client, rest[0]),
-      screenshot: () => cmd_screenshot(client, rest[0]),
+      screenshot: () => cmd_screenshot(client, rest[0], rest.includes("--full")),
       snapshot: () => cmd_snapshot(client),
       state: () => cmd_state(client),
       evaluate: () => cmd_evaluate(client, rest.join(" ")),
