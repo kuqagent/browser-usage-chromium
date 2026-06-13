@@ -69,7 +69,7 @@ if [[ ! -f "$CONFIG" ]]; then
     CONFIG="$CONFIG_DIR/config"
     mkdir -p "$CONFIG_DIR"
   }
-  echo '{"enabled":false,"mode":"headless"}' > "$CONFIG" 2>/dev/null || true
+  echo '{"enabled":true,"mode":"headed"}' > "$CONFIG" 2>/dev/null || true
 fi
 
 # Read config value
