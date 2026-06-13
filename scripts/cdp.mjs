@@ -224,12 +224,18 @@ async function cmd_navigate(client, url) {
 }
 
 async function cmd_click(client, selector) {
-  const r = await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return {error:"not found"}; el.scrollIntoView({block:"center"}); el.click(); return {success:true, tag:el.tagName, text:el.textContent?.slice(0,100)} })()`,
+  // Get element position and dispatch mouse events
+  const { result: { value: pos } } = await client.send("Runtime.evaluate", {
+    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; el.scrollIntoView({block:"center"}); const r = el.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2, tag: el.tagName, text: el.textContent?.slice(0,100)} })()`,
     returnByValue: true,
   })
-  await new Promise((r) => setTimeout(r, 1000))
-  return r.result?.value || { success: true }
+  if (!pos) return { error: "element not found" }
+  
+  // Dispatch mouse events for proper click handling
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: pos.x, y: pos.y, button: "left", clickCount: 1 })
+  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pos.x, y: pos.y, button: "left", clickCount: 1 })
+  await new Promise((r) => setTimeout(r, 500))
+  return { success: true, tag: pos.tag, text: pos.text }
 }
 
 async function cmd_click_text(client, text) {
@@ -300,20 +306,20 @@ async function cmd_send(client, text) {
   })
   await client.send("Input.insertText", { text })
   await new Promise((r) => setTimeout(r, 300))
-  await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = document.activeElement; if (!el) return; el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',keyCode:13,bubbles:true,cancelable:true})) })()`,
-    returnByValue: true,
-  })
+  // Dispatch keydown + keyup for Enter
+  await client.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 })
+  await client.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 })
   await new Promise((r) => setTimeout(r, 1000))
   return { success: true, sent: text.length }
 }
 
 async function cmd_type(client, selector, text) {
-  // Focus element and clear using select+delete (works with React controlled inputs)
-  await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.focus(); el.select(); document.execCommand('delete'); return true })()`,
+  // Focus element and check result before typing
+  const { result: { value: focused } } = await client.send("Runtime.evaluate", {
+    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.focus(); el.select(); document.execCommand('delete'); return document.activeElement === el })()`,
     returnByValue: true,
   })
+  if (!focused) return { success: false, error: "element not found or focus failed" }
   await client.send("Input.insertText", { text })
   return { success: true, typed: text.length }
 }
@@ -336,14 +342,14 @@ async function cmd_press(client, key) {
 async function cmd_screenshot(client, path, fullPage) {
   const opts = { format: "png" }
   if (fullPage) {
+    // Use CDP to capture full page (avoid clip bug)
     try {
-      const { result: { value: dims } } = await client.send("Runtime.evaluate", {
-        expression: "JSON.stringify({width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight})",
-        returnByValue: true,
-      })
-      const parsed = JSON.parse(dims || "{}")
-      if (parsed.width && parsed.height) {
-        opts.clip = { x: 0, y: 0, width: parsed.width, height: parsed.height, scale: 1 }
+      const { result: { value: layoutMetrics } } = await client.send("Page.getLayoutMetrics")
+      opts.clip = {
+        x: 0, y: 0,
+        width: layoutMetrics.contentSize.width,
+        height: layoutMetrics.contentSize.height,
+        scale: 1
       }
     } catch { /* fallback to viewport screenshot */ }
   }
@@ -408,11 +414,20 @@ const cmd_text = async (client, selector) => {
 async function cmd_wait(client, type, target, timeoutMs) {
   if (type === "selector") {
     const timeout = parseInt(timeoutMs) || 30000
-    const r = await client.send("Runtime.evaluate", {
+    // Use Promise.race with CDP timeout to prevent hang
+    const cdpTimeout = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("CDP timeout")), timeout + 5000)
+    )
+    const waitPromise = client.send("Runtime.evaluate", {
       expression: `new Promise((resolve) => { let elapsed = 0; const check = () => { const el = document.querySelector(${JSON.stringify(target)}); if (el) resolve({found:true, tag:el.tagName}); else if (elapsed >= ${timeout}) resolve({found:false, error:"timeout"}); else { elapsed += 200; setTimeout(check, 200) } }; check() })`,
       returnByValue: true, awaitPromise: true,
     })
-    return r.result?.value || { found: false }
+    try {
+      const r = await Promise.race([waitPromise, cdpTimeout])
+      return r.result?.value || { found: false }
+    } catch (e) {
+      return { found: false, error: e.message }
+    }
   }
   if (type === "load") {
     const ev = await client.once("Page.loadEventFired", parseInt(target) || 10000)
