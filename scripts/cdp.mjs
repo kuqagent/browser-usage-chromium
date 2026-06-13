@@ -369,9 +369,9 @@ const cmd_text = async (client, selector) => {
   return { success: true, text: r.result?.value?.slice(0, 10000) }
 }
 
-async function cmd_wait(client, type, target) {
+async function cmd_wait(client, type, target, timeoutMs) {
   if (type === "selector") {
-    const timeout = parseInt(target) || 30000
+    const timeout = parseInt(timeoutMs) || 30000
     const r = await client.send("Runtime.evaluate", {
       expression: `new Promise((resolve) => { let elapsed = 0; const check = () => { const el = document.querySelector(${JSON.stringify(target)}); if (el) resolve({found:true, tag:el.tagName}); else if (elapsed >= ${timeout}) resolve({found:false, error:"timeout"}); else { elapsed += 200; setTimeout(check, 200) } }; check() })`,
       returnByValue: true, awaitPromise: true,

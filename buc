@@ -315,7 +315,7 @@ case "${1:-}" in
     echo "  buc eval <js>                   Run JavaScript"
     echo "  buc scroll [up|down|top|bottom] Scroll"
     echo "  buc back                        Go back"
-    echo "  buc wait selector <css>         Wait for element"
+    echo "  buc wait selector <css> [ms]    Wait for element (default 30s)"
     echo "  buc wait load [ms]              Wait for page load"
     echo "  buc wait <ms>                   Wait N milliseconds"
     echo "  buc text [selector]             Get text"
