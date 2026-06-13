@@ -233,8 +233,9 @@ async function cmd_click(client, selector) {
 }
 
 async function cmd_click_text(client, text) {
+  // Use includes() for partial match instead of exact innerText match
   const r = await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim() === ${JSON.stringify(text)}); if (!el) return {error:"not found"}; const clickable = el.closest('button, a, [role="button"], [role="link"], [jsaction]') || el; clickable.scrollIntoView({block:"center"}); clickable.click(); return {success:true, tag:clickable.tagName, text:clickable.textContent?.slice(0,100)} })()`,
+    expression: `(() => { const el = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim().includes(${JSON.stringify(text)})); if (!el) return {error:"not found"}; const clickable = el.closest('button, a, [role="button"], [role="link"], [jsaction]') || el; clickable.scrollIntoView({block:"center"}); clickable.click(); return {success:true, tag:clickable.tagName, text:clickable.textContent?.slice(0,100)} })()`,
     returnByValue: true,
   })
   await new Promise((r) => setTimeout(r, 1000))
@@ -269,8 +270,9 @@ async function cmd_click_index(client, index) {
 }
 
 async function cmd_send(client, text) {
+  // Find input: textbox, search, textarea, or contenteditable
   await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = document.querySelector('textarea') || document.querySelector('[contenteditable="true"]'); if (el) { el.focus(); if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') el.value = ''; else el.textContent = ''; } return !!el })()`,
+    expression: `(() => { const el = document.querySelector('input[type="text"], input[type="search"], input:not([type]), textarea') || document.querySelector('[contenteditable="true"]'); if (!el) return false; el.focus(); return true })()`,
     returnByValue: true,
   })
   await client.send("Input.insertText", { text })
@@ -284,8 +286,9 @@ async function cmd_send(client, text) {
 }
 
 async function cmd_type(client, selector, text) {
+  // Focus element and clear using select+delete (works with React controlled inputs)
   await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (el) { el.focus(); el.value = "" } })()`,
+    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false; el.focus(); el.select(); document.execCommand('delete'); return true })()`,
     returnByValue: true,
   })
   await client.send("Input.insertText", { text })
@@ -462,15 +465,16 @@ async function cmd_http(method, url, opts) {
   }
 }
 
-async function cmd_http_download(url, path) {
+async function cmd_http_download(url, path, maxRedirects = 10) {
   try {
+    if (maxRedirects <= 0) return { error: "Too many redirects" }
     const parsed = new URL(url)
     const mod = parsed.protocol === "https:" ? "https" : "http"
     const lib = await import(mod)
     return new Promise((resolve, reject) => {
       lib.get(url, { timeout: 30000 }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return cmd_http_download(res.headers.location, path).then(resolve, reject)
+          return cmd_http_download(res.headers.location, path, maxRedirects - 1).then(resolve, reject)
         }
         if (res.statusCode !== 200) {
           reject(new Error(`HTTP ${res.statusCode}`))

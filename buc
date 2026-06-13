@@ -82,13 +82,14 @@ if [[ ! -f "$CONFIG" ]]; then
   echo '{"enabled":false,"mode":"headless"}' > "$CONFIG" 2>/dev/null || true
 fi
 
-# Read config value using node (handles booleans and strings)
+# Read config value using node (handles booleans and strings, safe for paths with quotes)
 cfg() {
   local key="$1"
   node -e "
     const fs = require('fs');
+    const path = String.raw\`${CONFIG}\`;
     try {
-      const cfg = JSON.parse(fs.readFileSync('$CONFIG', 'utf8'));
+      const cfg = JSON.parse(fs.readFileSync(path, 'utf8'));
       const val = cfg['$key'];
       if (val === undefined) { process.stdout.write(''); }
       else if (typeof val === 'boolean') { process.stdout.write(val ? 'true' : 'false'); }
@@ -235,7 +236,13 @@ cmd_open() {
   
   if [[ ! -f "$STATE" ]]; then
     node "$CDP" launch --port "$PORT" 2>/dev/null
-    sleep 2
+    # Wait for Chrome to be ready (up to 10 seconds)
+    for i in {1..20}; do
+      sleep 0.5
+      if node "$CDP" connect --port "$PORT" -q >/dev/null 2>&1; then
+        break
+      fi
+    done
   fi
   node "$CDP" connect --port "$PORT" -q > /dev/null 2>&1
   cmd navigate "${1:-}"
