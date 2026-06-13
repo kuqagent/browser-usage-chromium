@@ -1,4 +1,4 @@
 {
-  "enabled": true,
-  "mode": "headed"
+  "enabled": false,
+  "mode": "headless"
 }

@@ -18,7 +18,7 @@ buc is a tool that lets you control a web browser from the terminal. It's design
 
 Before using buc, you need:
 
-1. **Node.js** (version 18 or newer)
+1. **Node.js** (version 18 or newer, 22+ recommended)
    - Check: `node --version`
    - Install: https://nodejs.org
 
@@ -30,19 +30,14 @@ Before using buc, you need:
 
 3. **Windows users:** WSL (Windows Subsystem for Linux) is required. Install from PowerShell: `wsl --install`
 
-## Installation
+## Quick Start
 
 ```bash
-# 1. Download buc
-git clone https://github.com/yourname/buc.git
-cd buc
-
-# 2. Run installer
-chmod +x install.sh
-./install.sh
-
-# 3. Verify installation
-buc --help
+# Download and run
+git clone https://github.com/kuqagent/browser-usage-chromium.git
+cd browser-usage-chromium
+chmod +x buc
+./buc status
 ```
 
 ## First Use
@@ -52,38 +47,39 @@ buc --help
 buc is disabled by default. To enable it:
 
 ```bash
-sudo buc on headed
+sudo ./buc on headed
 ```
 
 This opens a visible browser window so you can see what's happening.
 
 **Other options:**
-- `sudo buc on headless` — no window (faster, for automation)
-- `sudo buc on both` — agent can choose
+- `sudo ./buc on headless` — no window (faster, for automation)
+- `sudo ./buc on both` — agent can choose
 
 ### Step 2: Check Status
 
 ```bash
-buc status
+./buc status
 ```
 
 You should see:
 ```
 Browser: enabled
 Mode: headed
+Connection: inactive
 ```
 
 ### Step 3: Start Browsing
 
 ```bash
 # Launch Chrome
-buc start
+./buc start
 
 # Go to a website
-buc nav https://example.com
+./buc nav https://example.com
 
 # See what's on the page
-buc state
+./buc state
 ```
 
 The `state` command shows numbered elements you can click:
@@ -100,26 +96,26 @@ The `state` command shows numbered elements you can click:
 
 ```bash
 # Click element #2 (Sign In button)
-buc clicki 2
+./buc clicki 2
 
 # Type into a text field
-buc type "input[name=q]" "search term"
+./buc type "#username" "myuser"
 
 # Or use smart submit
-buc send "search term"
+./buc send "search term"
 
 # Take a screenshot
-buc ss /tmp/page.png
+./buc ss /tmp/page.png
 ```
 
 ### Step 5: Clean Up
 
 ```bash
 # Close the browser
-buc stop
+./buc stop
 
 # Or disable buc entirely
-sudo buc off
+sudo ./buc off
 ```
 
 ## Common Tasks
@@ -127,34 +123,34 @@ sudo buc off
 ### Fill Out a Form
 
 ```bash
-buc nav https://example.com/form
-buc type "#name" "John Doe"
-buc type "#email" "john@example.com"
-buc clicki 5  # Submit button (check state first)
+./buc nav https://example.com/form
+./buc type "#name" "John Doe"
+./buc type "#email" "john@example.com"
+./buc clicki 5  # Submit button (check state first)
 ```
 
 ### Scrape a Page
 
 ```bash
-buc nav https://example.com
-buc text  # Get all text on page
+./buc nav https://example.com
+./buc text  # Get all text on page
 ```
 
 ### Take Screenshots
 
 ```bash
-buc nav https://example.com
-buc ss /tmp/screenshot.png
+./buc nav https://example.com
+./buc ss /tmp/screenshot.png
 ```
 
 ### Automate Login
 
 ```bash
-buc nav https://example.com/login
-buc type "#username" "myuser"
-buc type "#password" "mypass"
-buc clicki 4  # Login button
-buc wait load  # Wait for redirect
+./buc nav https://example.com/login
+./buc type "#username" "myuser"
+./buc type "#password" "mypass"
+./buc clicki 4  # Login button
+./buc wait load  # Wait for redirect
 ```
 
 ## Headed vs Headless
@@ -203,49 +199,53 @@ The `sudo` requirement for `buc on/off` is intentional:
 
 buc isn't in your PATH. Try:
 ```bash
-/usr/local/bin/buc --help
-```
-
-Or add to PATH:
-```bash
-export PATH="/usr/local/bin:$PATH"
+./buc --help
 ```
 
 ### "Cannot connect"
 
 Chrome isn't running or buc can't reach it:
 ```bash
-buc start  # Launch Chrome
-buc status # Check connection
+./buc start  # Launch Chrome
+./buc status # Check connection
 ```
 
 ### "Browser: disabled"
 
 You need to enable buc:
 ```bash
-sudo buc on headed
+sudo ./buc on headed
 ```
 
 ### Elements Not Found
 
 Page might not be fully loaded:
 ```bash
-buc wait load  # Wait for page load
-buc state      # Try again
+./buc wait load  # Wait for page load
+./buc state      # Try again
 ```
 
 ### Wrong Element Clicked
 
 Use the full accessibility tree:
 ```bash
-buc snap  # Shows complete page structure
+./buc snap  # Shows complete page structure
 ```
+
+### Node.js WebSocket Error
+
+If you see WebSocket errors on Node 18-21:
+```bash
+npm install -g ws
+```
+
+Or upgrade to Node 22+ which has built-in WebSocket.
 
 ## Getting Help
 
 ```bash
-buc --help     # Show all commands
-buc status     # Check current state
+./buc --help     # Show all commands
+./buc status     # Check current state
 ```
 
 For agent integration, see `SKILL.md`.

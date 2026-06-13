@@ -22,7 +22,9 @@
 #   buc eval <js>                   Run JavaScript
 #   buc scroll [up|down|top|bottom] Scroll page
 #   buc back                        Navigate back
-#   buc wait <selector|load|ms>     Wait for condition
+#   buc wait selector <css>         Wait for element
+#   buc wait load [ms]              Wait for page load
+#   buc wait <ms>                   Wait N milliseconds
 #   buc text [selector]             Get text content
 #   buc html [selector]             Get HTML content
 #   buc cookies get|set|clear       Cookie management
@@ -31,7 +33,6 @@
 #   buc newtab <url>                Open new tab
 #   buc focus <tab-id>              Bring tab to front
 #   buc switch <pattern>            Switch tab by URL/title
-#   buc status                      Show connection info
 #
 # HTTP (no browser needed):
 #   buc get <url>                   GET request
@@ -40,6 +41,9 @@
 #   buc delete <url>                DELETE request
 #   buc head <url>                  HEAD request
 #   buc dl <url> [path]             Download file
+#
+# Dependencies: Node.js 18+, Chrome/Chromium/Edge/Brave (CDP-compatible)
+# Platforms: Linux, macOS, Windows (WSL)
 
 set -euo pipefail
 
@@ -61,20 +65,31 @@ fi
 CONFIG="$CONFIG_DIR/config"
 mkdir -p "$STATE_DIR"
 
-# Default config (create locally if /etc/buc not writable)
+# Initialize config if missing (disabled by default, no overwrite)
 if [[ ! -f "$CONFIG" ]]; then
   mkdir -p "$CONFIG_DIR" 2>/dev/null || {
-    # Fallback to local config
     CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/buc"
     CONFIG="$CONFIG_DIR/config"
     mkdir -p "$CONFIG_DIR"
   }
-  echo '{"enabled":true,"mode":"headed"}' > "$CONFIG" 2>/dev/null || true
+  echo '{"enabled":false,"mode":"headless"}' > "$CONFIG" 2>/dev/null || true
 fi
 
-# Read config value
+# Read config value (pure bash, no python dependency)
 cfg() {
-  python3 -c "import json; print(json.load(open('$CONFIG')).get('$1',''))" 2>/dev/null || echo ""
+  local val
+  val=$(grep -o "\"$1\":[[:space:]]*\"[^\"]*\"" "$CONFIG" 2>/dev/null | head -1 | sed 's/.*"//' | tr -d '"')
+  echo "${val:-}"
+}
+
+# Check if browser is enabled
+check_enabled() {
+  local enabled
+  enabled=$(cfg "enabled")
+  if [[ "$enabled" != "true" ]]; then
+    echo '{"error":"Browser is disabled. Run: sudo buc on [headed|headless|both]"}' >&2
+    exit 1
+  fi
 }
 
 # Port management
@@ -121,7 +136,7 @@ cmd_status() {
   local enabled=$(cfg "enabled")
   local mode=$(cfg "mode")
   
-  if [[ "$enabled" == "True" || "$enabled" == "true" ]]; then
+  if [[ "$enabled" == "true" ]]; then
     echo "Browser: enabled"
   else
     echo "Browser: disabled"
@@ -130,9 +145,14 @@ cmd_status() {
   echo "Mode: ${mode:-headless}"
   echo ""
   
-  # Show connection status
+  # Verify CDP connection if state file exists
   if [[ -f "$STATE" ]]; then
-    echo "Connection: active (port $PORT)"
+    if node "$CDP" connect --port "$PORT" -q >/dev/null 2>&1; then
+      echo "Connection: active (port $PORT)"
+    else
+      echo "Connection: stale (port $PORT)"
+      rm -f "$STATE"
+    fi
   else
     echo "Connection: inactive"
   fi
@@ -144,15 +164,12 @@ cmd_status() {
 cmd_on() {
   local mode="${1:-headless}"
   
-  # Validate mode
   if [[ "$mode" != "headed" && "$mode" != "headless" && "$mode" != "both" ]]; then
     echo '{"error":"Invalid mode. Use: headed, headless, or both"}' >&2
     exit 1
   fi
   
-  # Write config (requires sudo)
   echo "{\"enabled\":true,\"mode\":\"$mode\"}" | sudo tee "$CONFIG" > /dev/null
-  
   echo "{\"success\":true,\"enabled\":true,\"mode\":\"$mode\"}"
 }
 
@@ -161,20 +178,20 @@ cmd_off() {
   echo '{"success":true,"enabled":false}'
 }
 
-# === Browser commands (no sudo needed) ===
+# === Browser commands (require enabled, no sudo) ===
 
 cmd_start() {
+  check_enabled
+  
   local headless_flag=""
   local mode=$(cfg "mode")
   
-  # Check if --headless passed explicitly
   for arg in "$@"; do
     if [[ "$arg" == "--headless" ]]; then
       headless_flag="--headless"
     fi
   done
   
-  # If no explicit flag, use config mode
   if [[ -z "$headless_flag" ]]; then
     if [[ "$mode" == "headless" || "$mode" == "" ]]; then
       headless_flag="--headless"
@@ -187,6 +204,8 @@ cmd_start() {
 }
 
 cmd_open() {
+  check_enabled
+  
   if [[ ! -f "$STATE" ]]; then
     node "$CDP" launch --port "$PORT" 2>/dev/null
     sleep 2
@@ -202,32 +221,32 @@ case "${1:-}" in
   on)         cmd_on "${2:-headless}" ;;
   off)        cmd_off ;;
   start)      shift; cmd_start "$@" ;;
-  stop)       node "$CDP" close --port "$PORT"; rm -f "$STATE" ;;
+  stop)       check_enabled; node "$CDP" close --port "$PORT"; rm -f "$STATE" ;;
   open)       shift; cmd_open "$@" ;;
-  nav|navigate)   shift; cmd navigate "$@" ;;
-  state)      cmd state ;;
-  click|clk)  shift; cmd click "$@" ;;
-  click-text|clkt) shift; cmd clkt "$@" ;;
-  click-index|clicki) shift; cmd clicki "$@" ;;
-  send)       shift; cmd send "$@" ;;
-  type|typ)   shift; cmd type "$@" ;;
-  press|key)  shift; cmd press "$@" ;;
-  ss|screenshot) shift; cmd screenshot "$@" ;;
-  snap|snapshot) cmd snapshot ;;
-  eval|evaluate) shift; cmd evaluate "$@" ;;
-  scroll|sc)  shift; cmd scroll "${1:-down}" ;;
-  back|bk)    cmd back ;;
-  wait)       shift; cmd wait "$@" ;;
-  text|txt)   shift; cmd text "$@" ;;
-  html)       shift; cmd html "$@" ;;
-  frames)     cmd frames ;;
-  cookies)    shift; cmd cookies "$@" ;;
-  tabs)       node "$CDP" tabs --port "$PORT" ;;
-  newtab)     shift; node "$CDP" newtab "$@" --port "$PORT" ;;
-  focus)      shift; node "$CDP" focus "$@" --port "$PORT" ;;
-  switch)     shift; node "$CDP" switch "$@" --port "$PORT" ;;
+  nav|navigate)   shift; check_enabled; cmd navigate "$@" ;;
+  state)      check_enabled; cmd state ;;
+  click|clk)  shift; check_enabled; cmd click "$@" ;;
+  click-text|clkt) shift; check_enabled; cmd clkt "$@" ;;
+  click-index|clicki) shift; check_enabled; cmd clicki "$@" ;;
+  send)       shift; check_enabled; cmd send "$@" ;;
+  type|typ)   shift; check_enabled; cmd type "$@" ;;
+  press|key)  shift; check_enabled; cmd press "$@" ;;
+  ss|screenshot) shift; check_enabled; cmd screenshot "$@" ;;
+  snap|snapshot) check_enabled; cmd snapshot ;;
+  eval|evaluate) shift; check_enabled; cmd evaluate "$@" ;;
+  scroll|sc)  shift; check_enabled; cmd scroll "${1:-down}" ;;
+  back|bk)    check_enabled; cmd back ;;
+  wait)       shift; check_enabled; cmd wait "$@" ;;
+  text|txt)   shift; check_enabled; cmd text "$@" ;;
+  html)       shift; check_enabled; cmd html "$@" ;;
+  frames)     check_enabled; cmd frames ;;
+  cookies)    shift; check_enabled; cmd cookies "$@" ;;
+  tabs)       check_enabled; node "$CDP" tabs --port "$PORT" ;;
+  newtab)     shift; check_enabled; node "$CDP" newtab "$@" --port "$PORT" ;;
+  focus)      shift; check_enabled; node "$CDP" focus "$@" --port "$PORT" ;;
+  switch)     shift; check_enabled; node "$CDP" switch "$@" --port "$PORT" ;;
   
-  # HTTP commands
+  # HTTP commands (no browser needed, no gate)
   http)       shift; node "$CDP" http "$@" -q ;;
   get)        node "$CDP" http GET "${2:-}" -q ;;
   post)       node "$CDP" http POST "${2:-}" "${3:-}" -q ;;
@@ -245,7 +264,7 @@ case "${1:-}" in
     echo "  buc on [headed|headless|both]   Enable browser"
     echo "  buc off                         Disable browser"
     echo ""
-    echo "Browser:"
+    echo "Browser (requires enabled):"
     echo "  buc start [--headless]          Launch Chrome"
     echo "  buc stop                        Close Chrome"
     echo "  buc open <url>                  Start + navigate"
@@ -261,7 +280,9 @@ case "${1:-}" in
     echo "  buc eval <js>                   Run JavaScript"
     echo "  buc scroll [up|down|top|bottom] Scroll"
     echo "  buc back                        Go back"
-    echo "  buc wait <selector|load|ms>     Wait"
+    echo "  buc wait selector <css>         Wait for element"
+    echo "  buc wait load [ms]              Wait for page load"
+    echo "  buc wait <ms>                   Wait N milliseconds"
     echo "  buc text [selector]             Get text"
     echo "  buc html [selector]             Get HTML"
     echo "  buc cookies get|set|clear       Cookies"
@@ -271,7 +292,7 @@ case "${1:-}" in
     echo "  buc focus <tab-id>              Focus tab"
     echo "  buc switch <pattern>            Switch tab"
     echo ""
-    echo "HTTP (no browser):"
+    echo "HTTP (no browser needed):"
     echo "  buc get <url>                   GET"
     echo "  buc post <url> [data]           POST"
     echo "  buc put <url> [data]            PUT"

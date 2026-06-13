@@ -1,7 +1,7 @@
 ---
 name: browser-use
 description: "Opt-in browser automation via buc. Check status before use."
-version: 1.0.0
+version: 1.1.0
 tags: [browser, automation, web, opt-in]
 ---
 
@@ -57,7 +57,9 @@ buc eval <js>          # Run JavaScript
 buc scroll [direction] # Scroll (up/down/top/bottom)
 buc text [selector]    # Get text content
 buc back               # Go back
-buc wait <what>        # Wait (selector/load/ms)
+buc wait selector <css>  # Wait for element to appear
+buc wait load [ms]       # Wait for page load
+buc wait <ms>            # Wait N milliseconds
 buc stop               # Close browser
 ```
 
@@ -118,3 +120,4 @@ buc dl <url> [path]              # Download file
 - "Browser: disabled" → user needs `sudo buc on`
 - Elements not found → wait for page load: `buc wait load`
 - Wrong element clicked → use `buc snap` to see full page structure
+- Node 18-21 WebSocket error → `npm install -g ws` or upgrade to Node 22+
