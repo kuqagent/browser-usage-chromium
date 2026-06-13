@@ -695,7 +695,7 @@ async function main() {
       back: () => cmd_back(client),
       html: () => cmd_html(client, rest[0]),
       text: () => cmd_text(client, rest[0]),
-      wait: () => cmd_wait(client, rest[0], rest[1]),
+      wait: () => cmd_wait(client, rest[0], rest[1], rest[2]),
       frames: () => cmd_frames(client),
       cookies: () => cmd_cookies(client, rest[0], ...rest.slice(1)),
     }
