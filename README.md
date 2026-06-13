@@ -18,6 +18,8 @@ Control a real Chrome browser from the terminal. Works with any AI agent (Hermes
 - Chrome, Chromium, Edge, or Brave (CDP-compatible browser)
 - Bash (Linux/macOS) or WSL (Windows)
 
+**Note on Windows:** WSL is required. If demand arises for native Windows support (PowerShell, no WSL), a `buc-windows` variant may be developed.
+
 **Note on Edge/Brave:** Auto-detection only works for Chrome/Chromium. For Edge or Brave, set `CHROME_PATH`:
 ```bash
 # Edge
