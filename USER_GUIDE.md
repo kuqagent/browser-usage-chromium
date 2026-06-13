@@ -18,15 +18,16 @@ buc is a tool that lets you control a web browser from the terminal. It's design
 
 Before using buc, you need:
 
-1. **Node.js** (version 18 or newer, 22+ recommended)
+1. **Node.js 22+** (recommended)
    - Check: `node --version`
    - Install: https://nodejs.org
+   - Node 22+ has built-in WebSocket support (required for CDP)
 
 2. **A Chromium-based browser**
    - Google Chrome
    - Chromium
-   - Microsoft Edge
-   - Brave
+   - Microsoft Edge (set `CHROME_PATH=/usr/bin/microsoft-edge`)
+   - Brave (set `CHROME_PATH=/usr/bin/brave-browser`)
 
 3. **Windows users:** WSL (Windows Subsystem for Linux) is required. Install from PowerShell: `wsl --install`
 
@@ -234,12 +235,28 @@ Use the full accessibility tree:
 
 ### Node.js WebSocket Error
 
-If you see WebSocket errors on Node 18-21:
+If you see WebSocket errors, upgrade to Node 22+:
 ```bash
-npm install -g ws
+# Using nvm
+nvm install 22
+nvm use 22
 ```
 
-Or upgrade to Node 22+ which has built-in WebSocket.
+Node 22+ has built-in WebSocket support required for CDP.
+
+### Edge or Brave Not Detected
+
+Set the `CHROME_PATH` environment variable:
+```bash
+# Edge
+export CHROME_PATH="/usr/bin/microsoft-edge"
+
+# Brave
+export CHROME_PATH="/usr/bin/brave-browser"
+
+# Then run buc
+./buc start
+```
 
 ## Getting Help
 

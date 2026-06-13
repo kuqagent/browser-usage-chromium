@@ -1,7 +1,7 @@
 #!/bin/bash
 # buc — Browser Use CLI
 # Agent-agnostic browser automation via Chrome DevTools Protocol.
-# Toggle requires sudo. Browser commands do not.
+# Toggle requires sudo. Browser commands require enabled but not sudo.
 #
 # Usage:
 #   buc status                      Show state (enabled/disabled, mode)
@@ -34,7 +34,7 @@
 #   buc focus <tab-id>              Bring tab to front
 #   buc switch <pattern>            Switch tab by URL/title
 #
-# HTTP (no browser needed):
+# HTTP (no browser needed, no gate):
 #   buc get <url>                   GET request
 #   buc post <url> [data]           POST request
 #   buc put <url> [data]            PUT request
@@ -52,34 +52,49 @@ CDP="$SCRIPT_DIR/scripts/cdp.mjs"
 
 # Config paths (OS-aware)
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-  CONFIG_DIR="/c/ProgramData/buc"
+  SYS_CONFIG_DIR="/c/ProgramData/buc"
   STATE_DIR="${LOCALAPPDATA:-$HOME/AppData/Local}/buc"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-  CONFIG_DIR="/etc/buc"
+  SYS_CONFIG_DIR="/etc/buc"
   STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/buc"
 else
-  CONFIG_DIR="/etc/buc"
+  SYS_CONFIG_DIR="/etc/buc"
   STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/buc"
 fi
 
-CONFIG="$CONFIG_DIR/config"
-mkdir -p "$STATE_DIR"
+USER_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/buc"
 
-# Initialize config if missing (disabled by default, no overwrite)
+# Resolve config path: system config if exists, else user config
+CONFIG=""
+if [[ -f "$SYS_CONFIG_DIR/config" ]]; then
+  CONFIG="$SYS_CONFIG_DIR/config"
+elif [[ -f "$USER_CONFIG_DIR/config" ]]; then
+  CONFIG="$USER_CONFIG_DIR/config"
+else
+  CONFIG="$USER_CONFIG_DIR/config"
+fi
+
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+
+# Initialize config if missing (disabled by default, no overwrite of existing)
 if [[ ! -f "$CONFIG" ]]; then
-  mkdir -p "$CONFIG_DIR" 2>/dev/null || {
-    CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/buc"
-    CONFIG="$CONFIG_DIR/config"
-    mkdir -p "$CONFIG_DIR"
-  }
+  mkdir -p "$(dirname "$CONFIG")" 2>/dev/null || true
   echo '{"enabled":false,"mode":"headless"}' > "$CONFIG" 2>/dev/null || true
 fi
 
-# Read config value (pure bash, no python dependency)
+# Read config value using node (handles booleans and strings)
 cfg() {
-  local val
-  val=$(grep -o "\"$1\":[[:space:]]*\"[^\"]*\"" "$CONFIG" 2>/dev/null | head -1 | sed 's/.*"//' | tr -d '"')
-  echo "${val:-}"
+  local key="$1"
+  node -e "
+    const fs = require('fs');
+    try {
+      const cfg = JSON.parse(fs.readFileSync('$CONFIG', 'utf8'));
+      const val = cfg['$key'];
+      if (val === undefined) { process.stdout.write(''); }
+      else if (typeof val === 'boolean') { process.stdout.write(val ? 'true' : 'false'); }
+      else { process.stdout.write(String(val)); }
+    } catch { process.stdout.write(''); }
+  " 2>/dev/null
 }
 
 # Check if browser is enabled
@@ -92,14 +107,18 @@ check_enabled() {
   fi
 }
 
-# Port management
+# Port management (safe with set -u)
 SAVED_PORT=9222
 [[ -f "$STATE_DIR/default-port" ]] && SAVED_PORT=$(cat "$STATE_DIR/default-port")
 PORT="${CDP_PORT:-$SAVED_PORT}"
+
+# Parse --port argument safely
 for ((i=1; i<=$#; i++)); do
-  if [[ "${!i}" == "--port" ]]; then
+  if [[ "${!i:-}" == "--port" ]]; then
     next=$((i+1))
-    PORT="${!next}"
+    if [[ -n "${!next:-}" ]]; then
+      PORT="${!next}"
+    fi
   fi
 done
 
@@ -107,8 +126,13 @@ STATE="$STATE_DIR/state-$PORT"
 
 # Check CDP script exists
 if [[ ! -f "$CDP" ]]; then
-  echo '{"error":"cdp.mjs not found at '"$CDP"'"}' >&2
-  exit 1
+  # Try fallback path for installed location
+  if [[ -f "/usr/local/lib/buc/scripts/cdp.mjs" ]]; then
+    CDP="/usr/local/lib/buc/scripts/cdp.mjs"
+  else
+    echo '{"error":"cdp.mjs not found at '"$CDP"'"}' >&2
+    exit 1
+  fi
 fi
 
 # Connect to browser
@@ -169,11 +193,14 @@ cmd_on() {
     exit 1
   fi
   
+  # Ensure parent directory exists
+  sudo mkdir -p "$(dirname "$CONFIG")" 2>/dev/null || true
   echo "{\"enabled\":true,\"mode\":\"$mode\"}" | sudo tee "$CONFIG" > /dev/null
   echo "{\"success\":true,\"enabled\":true,\"mode\":\"$mode\"}"
 }
 
 cmd_off() {
+  sudo mkdir -p "$(dirname "$CONFIG")" 2>/dev/null || true
   echo '{"enabled":false,"mode":"headless"}' | sudo tee "$CONFIG" > /dev/null
   echo '{"success":true,"enabled":false}'
 }
@@ -187,7 +214,7 @@ cmd_start() {
   local mode=$(cfg "mode")
   
   for arg in "$@"; do
-    if [[ "$arg" == "--headless" ]]; then
+    if [[ "${arg:-}" == "--headless" ]]; then
       headless_flag="--headless"
     fi
   done
@@ -264,7 +291,7 @@ case "${1:-}" in
     echo "  buc on [headed|headless|both]   Enable browser"
     echo "  buc off                         Disable browser"
     echo ""
-    echo "Browser (requires enabled):"
+    echo "Browser (requires enabled, no sudo):"
     echo "  buc start [--headless]          Launch Chrome"
     echo "  buc stop                        Close Chrome"
     echo "  buc open <url>                  Start + navigate"

@@ -14,33 +14,26 @@ Control a real Chrome browser from the terminal. Works with any AI agent (Hermes
 
 ## Dependencies
 
-- Node.js 18+ (22+ recommended for built-in WebSocket)
+- **Node.js 22+** (recommended — has built-in WebSocket)
 - Chrome, Chromium, Edge, or Brave (CDP-compatible browser)
 - Bash (Linux/macOS) or WSL (Windows)
 
-**Note:** Node 18-21 may require `npm install -g ws` for WebSocket support. Node 22+ has built-in WebSocket.
-
-### Windows
-
-Windows requires WSL (Windows Subsystem for Linux). Install WSL, then use buc from within WSL.
-
+**Note on Edge/Brave:** Auto-detection only works for Chrome/Chromium. For Edge or Brave, set `CHROME_PATH`:
 ```bash
-# In WSL
-sudo apt install nodejs npm
-./buc status
+# Edge
+export CHROME_PATH="/usr/bin/microsoft-edge"
+
+# Brave
+export CHROME_PATH="/usr/bin/brave-browser"
 ```
 
 ## Quick Start
 
 ```bash
-# Run directly from repo
+git clone https://github.com/kuqagent/browser-usage-chromium.git
+cd browser-usage-chromium
 chmod +x buc
 ./buc status
-
-# Or install system-wide (optional)
-sudo cp buc /usr/local/bin/
-sudo cp -r scripts /usr/local/lib/buc/
-# Then edit /usr/local/bin/buc line 17 to: CDP="/usr/local/lib/buc/scripts/cdp.mjs"
 ```
 
 ## Usage
@@ -52,7 +45,7 @@ sudo buc on headed          # Enable with visible browser
 sudo buc on headless        # Enable headless (no window)
 sudo buc off                # Disable
 
-# Browser commands (require enabled)
+# Browser commands (require enabled, no sudo)
 buc start                   # Launch Chrome
 buc nav https://example.com # Navigate
 buc state                   # Show clickable elements
@@ -74,13 +67,13 @@ buc get https://api.example.com/data
 ## Security
 
 - **Toggle requires sudo** — agent cannot enable browser without admin privileges
+- **Browser commands require enabled** — returns error if disabled
 - **Agent can read status** but cannot change it
-- **Browser commands check enabled** — returns error if disabled
 - **Browser uses temp profile** — no access to your Chrome accounts
 
 ### Account Safety
 
-buc uses a temporary Chrome profile. It does NOT access your logged-in Chrome accounts by default.
+buc uses a temporary Chrome profile by default. It does NOT access your logged-in Chrome accounts by default.
 
 If you need to use an existing Chrome profile with logged-in accounts:
 
@@ -107,8 +100,8 @@ buc works with any AI agent. See `SKILL.md` for agent instructions.
 
 ```
 buc/
-├── buc              # Main script (288 LOC)
-├── scripts/cdp.mjs  # CDP client (658 LOC)
+├── buc              # Main script
+├── scripts/cdp.mjs  # CDP client
 ├── config/default.json
 ├── SKILL.md         # Agent instructions
 ├── USER_GUIDE.md    # User guide
