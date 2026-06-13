@@ -362,7 +362,7 @@ async function cmd_screenshot(client, path, fullPage) {
       }
     } catch { /* fallback to viewport screenshot */ }
   }
-  const { data } = await client.send("Page.captureScreenshot", opts)
+  const { data } = await client.send("Page.captureScreenshot", opts, 10000)
   const buf = Buffer.from(data, "base64")
   if (path) {
     writeFileSync(path, buf)
