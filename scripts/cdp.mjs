@@ -336,13 +336,16 @@ async function cmd_press(client, key) {
 async function cmd_screenshot(client, path, fullPage) {
   const opts = { format: "png" }
   if (fullPage) {
-    // Get full page dimensions
-    const { result: { value: dims } } = await client.send("Runtime.evaluate", {
-      expression: "JSON.stringify({width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight})",
-      returnByValue: true,
-    })
-    const { width, height } = JSON.parse(dims)
-    opts.clip = { x: 0, y: 0, width, height, scale: 1 }
+    try {
+      const { result: { value: dims } } = await client.send("Runtime.evaluate", {
+        expression: "JSON.stringify({width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight})",
+        returnByValue: true,
+      })
+      const parsed = JSON.parse(dims || "{}")
+      if (parsed.width && parsed.height) {
+        opts.clip = { x: 0, y: 0, width: parsed.width, height: parsed.height, scale: 1 }
+      }
+    } catch { /* fallback to viewport screenshot */ }
   }
   const { data } = await client.send("Page.captureScreenshot", opts)
   const buf = Buffer.from(data, "base64")

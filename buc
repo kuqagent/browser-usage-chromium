@@ -237,7 +237,8 @@ cmd_start() {
 cmd_open() {
   check_enabled
   
-  if [[ ! -f "$STATE" ]]; then
+  # Check if Chrome is already running
+  if ! node "$CDP" connect --port "$PORT" -q >/dev/null 2>&1; then
     node "$CDP" launch --port "$PORT" 2>/dev/null
     # Wait for Chrome to be ready (up to 10 seconds)
     for i in {1..20}; do
