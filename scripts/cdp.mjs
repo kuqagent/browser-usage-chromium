@@ -270,9 +270,9 @@ async function cmd_click_index(client, index) {
 }
 
 async function cmd_send(client, text) {
-  // Find input: textbox, search, textarea, or contenteditable
+  // Find visible input: textbox, search, textarea, or contenteditable
   await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = document.querySelector('input[type="text"], input[type="search"], input:not([type]), textarea') || document.querySelector('[contenteditable="true"]'); if (!el) return false; el.focus(); return true })()`,
+    expression: `(() => { const inputs = document.querySelectorAll('input[type="text"], input[type="search"], input:not([type]), textarea, [contenteditable="true"]'); for (const el of inputs) { const rect = el.getBoundingClientRect(); const style = getComputedStyle(el); if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden') { el.focus(); return true; } } return false })()`,
     returnByValue: true,
   })
   await client.send("Input.insertText", { text })
@@ -371,8 +371,9 @@ const cmd_text = async (client, selector) => {
 
 async function cmd_wait(client, type, target) {
   if (type === "selector") {
+    const timeout = parseInt(target) || 30000
     const r = await client.send("Runtime.evaluate", {
-      expression: `new Promise((resolve) => { const check = () => { const el = document.querySelector(${JSON.stringify(target)}); if (el) resolve({found:true, tag:el.tagName}); else setTimeout(check, 200) }; check() })`,
+      expression: `new Promise((resolve) => { let elapsed = 0; const check = () => { const el = document.querySelector(${JSON.stringify(target)}); if (el) resolve({found:true, tag:el.tagName}); else if (elapsed >= ${timeout}) resolve({found:false, error:"timeout"}); else { elapsed += 200; setTimeout(check, 200) } }; check() })`,
       returnByValue: true, awaitPromise: true,
     })
     return r.result?.value || { found: false }

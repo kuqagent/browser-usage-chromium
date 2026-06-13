@@ -42,7 +42,7 @@
 #   buc head <url>                  HEAD request
 #   buc dl <url> [path]             Download file
 #
-# Dependencies: Node.js 18+, Chrome/Chromium/Edge/Brave (CDP-compatible)
+# Dependencies: Node.js 22+, Chrome/Chromium/Edge/Brave (CDP-compatible)
 # Platforms: Linux, macOS, Windows (WSL)
 
 set -euo pipefail
@@ -82,15 +82,16 @@ if [[ ! -f "$CONFIG" ]]; then
   echo '{"enabled":false,"mode":"headless"}' > "$CONFIG" 2>/dev/null || true
 fi
 
-# Read config value using node (handles booleans and strings, safe for paths with quotes)
+# Read config value using node (handles booleans and strings, safe for paths and keys with quotes)
 cfg() {
   local key="$1"
   node -e "
     const fs = require('fs');
     const path = String.raw\`${CONFIG}\`;
+    const key = String.raw\`${key}\`;
     try {
       const cfg = JSON.parse(fs.readFileSync(path, 'utf8'));
-      const val = cfg['$key'];
+      const val = cfg[key];
       if (val === undefined) { process.stdout.write(''); }
       else if (typeof val === 'boolean') { process.stdout.write(val ? 'true' : 'false'); }
       else { process.stdout.write(String(val)); }
