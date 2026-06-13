@@ -232,20 +232,23 @@ async function cmd_click(client, selector) {
   if (!pos) return { error: "element not found" }
   
   // Dispatch mouse events for proper click handling
-  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: pos.x, y: pos.y, button: "left", clickCount: 1 })
-  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pos.x, y: pos.y, button: "left", clickCount: 1 })
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: pos.x, y: pos.y, button: "left", buttons: 1, clickCount: 1 })
+  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pos.x, y: pos.y, button: "left", buttons: 1, clickCount: 1 })
   await new Promise((r) => setTimeout(r, 500))
   return { success: true, tag: pos.tag, text: pos.text }
 }
 
 async function cmd_click_text(client, text) {
-  // Use includes() for partial match instead of exact innerText match
-  const r = await client.send("Runtime.evaluate", {
-    expression: `(() => { const el = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim().includes(${JSON.stringify(text)})); if (!el) return {error:"not found"}; const clickable = el.closest('button, a, [role="button"], [role="link"], [jsaction]') || el; clickable.scrollIntoView({block:"center"}); clickable.click(); return {success:true, tag:clickable.tagName, text:clickable.textContent?.slice(0,100)} })()`,
+  // Find element and get position for mouse events
+  const { result: { value: pos } } = await client.send("Runtime.evaluate", {
+    expression: `(() => { const el = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim().includes(${JSON.stringify(text)})); if (!el) return null; const clickable = el.closest('button, a, [role="button"], [role="link"], [jsaction]') || el; clickable.scrollIntoView({block:"center"}); const r = clickable.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2, tag: clickable.tagName, text: clickable.textContent?.slice(0,100)} })()`,
     returnByValue: true,
   })
-  await new Promise((r) => setTimeout(r, 1000))
-  return r.result?.value || { success: true }
+  if (!pos) return { error: "element not found" }
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: pos.x, y: pos.y, button: "left", buttons: 1, clickCount: 1 })
+  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pos.x, y: pos.y, button: "left", buttons: 1, clickCount: 1 })
+  await new Promise((r) => setTimeout(r, 500))
+  return { success: true, tag: pos.tag, text: pos.text }
 }
 
 async function cmd_click_index(client, index) {
@@ -256,46 +259,55 @@ async function cmd_click_index(client, index) {
   const target = clickable[index - 1]
   if (!target) return { error: `No element at index ${index}. Available: 1-${clickable.length}` }
 
-  // Use ref if available, otherwise find by text
+  // Get element position for mouse events
+  let pos = null
+  
+  // Try ref first
   if (target.ref) {
-    const r = await client.send("Runtime.evaluate", {
-      expression: `(() => { const el = document.querySelector('[data-ref="${target.ref}"]') || document.querySelector('[ref="${target.ref}"]'); if (!el) return {error:"ref not found"}; el.scrollIntoView({block:"center"}); el.click(); return {success:true, tag:el.tagName, text:el.textContent?.slice(0,100)} })()`,
+    const { result: { value } } = await client.send("Runtime.evaluate", {
+      expression: `(() => { const el = document.querySelector('[data-ref="${target.ref}"]') || document.querySelector('[ref="${target.ref}"]'); if (!el) return null; el.scrollIntoView({block:"center"}); const r = el.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2, tag: el.tagName, text: el.textContent?.slice(0,100)} })()`,
       returnByValue: true,
     })
-    await new Promise((r) => setTimeout(r, 1000))
-    return r.result?.value || { success: true }
+    pos = value
   }
-
-  // Fallback: find by role + text (try multiple strategies)
-  const r = await client.send("Runtime.evaluate", {
-    expression: `(() => {
-      const roleSelector = ${target.role === "link" ? '"a"' : target.role === "button" ? '"button"' : '"input, textarea, select, [role]"'};
-      const els = document.querySelectorAll(roleSelector);
-      const nameLC = ${JSON.stringify(target.name.toLowerCase().slice(0, 50))};
-      for (const el of els) {
-        const text = (el.textContent || "").trim().toLowerCase();
-        const aria = (el.getAttribute("aria-label") || "").toLowerCase();
-        const placeholder = (el.getAttribute("placeholder") || "").toLowerCase();
-        if (text.includes(nameLC) || aria.includes(nameLC) || placeholder.includes(nameLC)) {
-          el.scrollIntoView({block:"center"});
-          el.click();
-          return {success:true, tag:el.tagName, method:"text-match"};
+  
+  // Fallback: find by text
+  if (!pos) {
+    const { result: { value } } = await client.send("Runtime.evaluate", {
+      expression: `(() => {
+        const roleSelector = ${target.role === "link" ? '"a"' : target.role === "button" ? '"button"' : '"input, textarea, select, [role]"'};
+        const nameLC = ${JSON.stringify(target.name.toLowerCase().slice(0, 50))};
+        const allEls = Array.from(document.querySelectorAll(roleSelector));
+        for (const el of allEls) {
+          const text = (el.textContent || "").trim().toLowerCase();
+          const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+          if (text.includes(nameLC) || aria.includes(nameLC)) {
+            el.scrollIntoView({block:"center"});
+            const r = el.getBoundingClientRect();
+            return {x: r.x + r.width/2, y: r.y + r.height/2, tag: el.tagName, method:"text-match"};
+          }
         }
-      }
-      // Last resort: click by index in role-matched elements
-      const allEls = Array.from(document.querySelectorAll(roleSelector));
-      if (allEls.length >= ${index}) {
-        const el = allEls[${index} - 1];
-        el.scrollIntoView({block:"center"});
-        el.click();
-        return {success:true, tag:el.tagName, method:"index-fallback"};
-      }
-      return {error:"not found by text or index"};
-    })()`,
-    returnByValue: true,
-  })
-  await new Promise((r) => setTimeout(r, 1000))
-  return r.result?.value || { success: true }
+        // Last resort: index fallback
+        if (allEls.length >= ${index}) {
+          const el = allEls[${index} - 1];
+          el.scrollIntoView({block:"center"});
+          const r = el.getBoundingClientRect();
+          return {x: r.x + r.width/2, y: r.y + r.height/2, tag: el.tagName, method:"index-fallback"};
+        }
+        return null;
+      })()`,
+      returnByValue: true,
+    })
+    pos = value
+  }
+  
+  if (!pos) return { error: "element not found" }
+  
+  // Dispatch mouse events
+  await client.send("Input.dispatchMouseEvent", { type: "mousePressed", x: pos.x, y: pos.y, button: "left", buttons: 1, clickCount: 1 })
+  await client.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pos.x, y: pos.y, button: "left", buttons: 1, clickCount: 1 })
+  await new Promise((r) => setTimeout(r, 500))
+  return { success: true, tag: pos.tag, method: pos.method }
 }
 
 async function cmd_send(client, text) {
@@ -342,14 +354,11 @@ async function cmd_press(client, key) {
 async function cmd_screenshot(client, path, fullPage) {
   const opts = { format: "png" }
   if (fullPage) {
-    // Use CDP to capture full page (avoid clip bug)
     try {
-      const { result: { value: layoutMetrics } } = await client.send("Page.getLayoutMetrics")
-      opts.clip = {
-        x: 0, y: 0,
-        width: layoutMetrics.contentSize.width,
-        height: layoutMetrics.contentSize.height,
-        scale: 1
+      const result = await client.send("Page.getLayoutMetrics")
+      const contentSize = result.cssContentSize || result.contentSize || {}
+      if (contentSize.width && contentSize.height) {
+        opts.clip = { x: 0, y: 0, width: contentSize.width, height: contentSize.height, scale: 1 }
       }
     } catch { /* fallback to viewport screenshot */ }
   }
@@ -414,20 +423,12 @@ const cmd_text = async (client, selector) => {
 async function cmd_wait(client, type, target, timeoutMs) {
   if (type === "selector") {
     const timeout = parseInt(timeoutMs) || 30000
-    // Use Promise.race with CDP timeout to prevent hang
-    const cdpTimeout = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("CDP timeout")), timeout + 5000)
-    )
-    const waitPromise = client.send("Runtime.evaluate", {
+    // Pass timeout directly to CDP client to prevent hang
+    const r = await client.send("Runtime.evaluate", {
       expression: `new Promise((resolve) => { let elapsed = 0; const check = () => { const el = document.querySelector(${JSON.stringify(target)}); if (el) resolve({found:true, tag:el.tagName}); else if (elapsed >= ${timeout}) resolve({found:false, error:"timeout"}); else { elapsed += 200; setTimeout(check, 200) } }; check() })`,
       returnByValue: true, awaitPromise: true,
-    })
-    try {
-      const r = await Promise.race([waitPromise, cdpTimeout])
-      return r.result?.value || { found: false }
-    } catch (e) {
-      return { found: false, error: e.message }
-    }
+    }, timeout + 5000)
+    return r.result?.value || { found: false }
   }
   if (type === "load") {
     const ev = await client.once("Page.loadEventFired", parseInt(target) || 10000)
